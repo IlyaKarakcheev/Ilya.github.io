@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P Онлайн Игра</title>
+    <!-- Подключаем облачный PeerJS -->
+    <script src="https://unpkg.com"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 10px; }
+        .box { background: #333; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        canvas { background: #111; border: 2px solid #555; display: block; margin: 10px auto; max-width: 100%; border-radius: 4px; }
+        button { padding: 12px; width: 100%; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 16px; }
+        .status { color: #aaa; font-size: 14px; margin-top: 5px; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <h2>🎮 P2P Мини-Игра</h2>
+
+    <!-- Окно для ХОСТА: создание комнаты -->
+    <div id="host-panel" class="box">
+        <button id="share-btn">🔗 Скопировать ссылку для друга</button>
+        <div class="status" id="host-status">Инициализация сети...</div>
+    </div>
+
+    <!-- Окно для КЛИЕНТА: статус подключения -->
+    <div id="client-panel" class="box hidden">
+        <div class="status" id="client-status">Подключение к создателю игры...</div>
+    </div>
+
+    <!-- Игровое поле -->
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <p class="status">Управление: Нажимайте (кликайте) на игровое поле, чтобы переместить свой квадрат.</p>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Данные игроков (Задаем разные цвета)
+        let myPlayer = { x: 50, y: 200, color: '#007bff', size: 30 };
+        let enemyPlayer = { x: 320, y: 200, color: '#dc3545', size: 30, active: false };
+
+        // Инициализация PeerJS (использует бесплатное облако проекта)
+        const peer = new Peer();
+        let connection = null;
+
+        // Проверяем, есть ли ID комнаты в адресной строке
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room');
+
+        peer.on('open', (id) => {
+            if (roomId) {
+                // ВАРИАНТ А: В URL есть ID -> Мы КЛИЕНТ
+                document.getElementById('host-panel').classList.add('hidden');
+                document.getElementById('client-panel').classList.remove('hidden');
+                
+                // Меняем цвета местами для баланса на экранах
+                myPlayer.color = '#dc3545';
+                enemyPlayer.color = '#007bff';
+                
+                connectToHost(roomId);
+            } else {
+                // ВАРИАНТ Б: Чистый URL -> Мы ХОСТ
+                const gameUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
+                document.getElementById('host-status').innerText = "Комната создана. Ждем игрока.";
+                
+                // Настраиваем кнопку копирования ссылки
+                document.getElementById('share-btn').addEventListener('click', () => {
+                    navigator.clipboard.writeText(gameUrl);
+                    document.getElementById('share-btn').innerText = "📋 Ссылка скопирована!";
+                    document.getElementById('share-btn').style.background = "#007bff";
+                });
+            }
+        });
+
+        // Логика Хоста: принимает подключение от зашедшего по ссылке друга
+        peer.on('connection', (conn) => {
+            connection = conn;
+            document.getElementById('host-panel').classList.add('hidden');
+            initGameConnection();
+        });
+
+        // Логика Клиента: подключается к Хосту
+        function connectToHost(hostId) {
+            connection = peer.connect(hostId);
+            connection.on('open', () => {
+                document.getElementById('client-panel').classList.add('hidden');
+                initGameConnection();
+            });
+        }
+
+        // Запуск сетевого обмена
+        function initGameConnection() {
+            enemyPlayer.active = true;
+
+            // Отправляем свои стартовые координаты сразу после коннекта
+            sendMyPosition();
+
+            // Слушаем пакеты данных от второго игрока в реальном времени
+            connection.on('data', (data) => {
+                if (data.type === 'MOVE') {
+                    enemyPlayer.x = data.x;
+                    enemyPlayer.y = data.y;
+                }
+            });
+
+            connection.on('close', () => {
+                enemyPlayer.active = false;
+                alert("Второй игрок отключился.");
+            });
+        }
+
+        // Функция отправки координат через P2P-канал
+        function sendMyPosition() {
+            if (connection && connection.open) {
+                connection.send({
+                    type: 'MOVE',
+                    x: myPlayer.x,
+                    y: myPlayer.y
+                });
+            }
+        }
+
+        // --- ИГРОВАЯ ЛОГИКА (ОТРИСОВКА И УПРАВЛЕНИЕ) ---
+
+        // Обработка клика/тапа по экрану для перемещения квадрата
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            // Вычисляем координаты клика относительно Canvas с учетом адаптивности экрана
+            myPlayer.x = ((e.clientX - rect.left) / rect.width) * canvas.width - myPlayer.size/2;
+            myPlayer.y = ((e.clientY - rect.top) / rect.height) * canvas.height - myPlayer.size/2;
+            
+            // Как только сдвинулись — отправляем новые координаты другу
+            sendMyPosition();
+        });
+
+        // Игровой цикл отрисовки (60 кадров в секунду)
+        function gameLoop() {
+            // Очищаем экран
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Рисуем себя (Синий или Красный)
+            ctx.fillStyle = myPlayer.color;
+            ctx.fillRect(myPlayer.x, myPlayer.y, myPlayer.size, myPlayer.size);
+
+            // Рисуем соперника, если он подключен
+            if (enemyPlayer.active) {
+                ctx.fillStyle = enemyPlayer.color;
+                ctx.fillRect(enemyPlayer.x, enemyPlayer.y, enemyPlayer.size, enemyPlayer.size);
+            } else {
+                // Если соперника нет, пишем текст ожидания на поле
+                ctx.fillStyle = "#555";
+                ctx.font = "16px sans-serif";
+                ctx.fillText("Ожидание подключения соперника...", 60, 200);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Запускаем отрисовку графики
+        gameLoop();
+    </script>
+</body>
+</html>
