@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>P2P Онлайн Игра</title>
-    <!-- Подключаем облачный PeerJS -->
-    <script src="https://unpkg.com"></script>
+    <!-- Подключаем стабильную версию PeerJS -->
+    <script src="https://jsdelivr.net"></script>
     <style>
         body { font-family: sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 10px; }
         .box { background: #333; padding: 15px; border-radius: 8px; max-width: 400px; margin: 10px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
@@ -42,17 +42,28 @@
         let myPlayer = { x: 50, y: 200, color: '#007bff', size: 30 };
         let enemyPlayer = { x: 320, y: 200, color: '#dc3545', size: 30, active: false };
 
-        // Инициализация PeerJS (использует бесплатное облако проекта)
-        const peer = new Peer();
         let connection = null;
 
         // Проверяем, есть ли ID комнаты в адресной строке
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
 
+        // Инициализация PeerJS с надежными серверами обхода NAT от Google и Mozilla
+        const peer = new Peer({
+            config: {
+                'iceServers': [
+                    { urls: 'stun:://google.com' },
+                    { urls: 'stun:://google.com' },
+                    { urls: 'stun:://google.com' },
+                    { urls: 'stun:://mozilla.com' }
+                ]
+            }
+        });
+
+        // 1. Когда сеть успешно запущена
         peer.on('open', (id) => {
             if (roomId) {
-                // ВАРИАНТ А: В URL есть ID -> Мы КЛИЕНТ
+                // ВАРИАНТ А: Мы КЛИЕНТ (перешли по ссылке)
                 document.getElementById('host-panel').classList.add('hidden');
                 document.getElementById('client-panel').classList.remove('hidden');
                 
@@ -62,17 +73,28 @@
                 
                 connectToHost(roomId);
             } else {
-                // ВАРИАНТ Б: Чистый URL -> Мы ХОСТ
+                // ВАРИАНТ Б: Мы ХОСТ (открыли чистый сайт)
                 const gameUrl = `${window.location.origin}${window.location.pathname}?room=${id}`;
-                document.getElementById('host-status').innerText = "Комната создана. Ждем игрока.";
+                document.getElementById('host-status').innerText = "Комната создана! Ждем второго игрока.";
                 
                 // Настраиваем кнопку копирования ссылки
                 document.getElementById('share-btn').addEventListener('click', () => {
-                    navigator.clipboard.writeText(gameUrl);
-                    document.getElementById('share-btn').innerText = "📋 Ссылка скопирована!";
-                    document.getElementById('share-btn').style.background = "#007bff";
+                    navigator.clipboard.writeText(gameUrl).then(() => {
+                        document.getElementById('share-btn').innerText = "📋 Ссылка скопирована!";
+                        document.getElementById('share-btn').style.background = "#007bff";
+                    }).catch(err => {
+                        // Запасной вариант, если браузер заблокировал автоматический буфер
+                        alert("Скопируйте адресную строку и отправьте другу!");
+                    });
                 });
             }
+        });
+
+        // Обработка ошибок сети
+        peer.on('error', (err) => {
+            console.error('Ошибка PeerJS:', err);
+            document.getElementById('host-status').innerText = "Ошибка сети. Обновите страницу.";
+            document.getElementById('client-status').innerText = "Ошибка подключения.";
         });
 
         // Логика Хоста: принимает подключение от зашедшего по ссылке друга
@@ -82,7 +104,7 @@
             initGameConnection();
         });
 
-        // Логика Клиента: подключается к Хосту
+        // Логика - как Клиент подключается к Хосту
         function connectToHost(hostId) {
             connection = peer.connect(hostId);
             connection.on('open', () => {
@@ -91,7 +113,7 @@
             });
         }
 
-        // Запуск сетевого обмена
+        // Запуск сетевого обмена данными
         function initGameConnection() {
             enemyPlayer.active = true;
 
@@ -100,7 +122,7 @@
 
             // Слушаем пакеты данных от второго игрока в реальном времени
             connection.on('data', (data) => {
-                if (data.type === 'MOVE') {
+                if (data && data.type === 'MOVE') {
                     enemyPlayer.x = data.x;
                     enemyPlayer.y = data.y;
                 }
@@ -136,12 +158,22 @@
             sendMyPosition();
         });
 
+        // Дополнительно для мобильных тач-событий
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Предотвращаем скролл страницы при игре
+            const rect = canvas.getBoundingClientRect();
+            const touch = e.touches[0];
+            myPlayer.x = ((touch.clientX - rect.left) / rect.width) * canvas.width - myPlayer.size/2;
+            myPlayer.y = ((touch.clientY - rect.top) / rect.height) * canvas.height - myPlayer.size/2;
+            sendMyPosition();
+        }, { passive: false });
+
         // Игровой цикл отрисовки (60 кадров в секунду)
         function gameLoop() {
             // Очищаем экран
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Рисуем себя (Синий или Красный)
+            // Рисуем себя (Синий у хоста, Красный у клиента)
             ctx.fillStyle = myPlayer.color;
             ctx.fillRect(myPlayer.x, myPlayer.y, myPlayer.size, myPlayer.size);
 
