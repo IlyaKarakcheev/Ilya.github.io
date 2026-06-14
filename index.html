@@ -3,44 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Чистая P2P Игра без Серверов</title>
+    <title>Стабильная P2P Игра без Серверов</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 10px; }
         .box { background: #333; padding: 15px; border-radius: 8px; max-width: 420px; margin: 10px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.3); box-sizing: border-box; }
         canvas { background: #111; border: 2px solid #555; display: block; margin: 10px auto; max-width: 100%; border-radius: 4px; }
         button { padding: 12px; width: 100%; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 15px; margin: 5px 0; }
         button.blue { background: #007bff; }
-        input { padding: 12px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; border: 1px solid #555; background: #444; color: #fff; }
+        input { padding: 12px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; border: 1px solid #555; background: #444; color: #fff; font-size: 14px; }
         .status { color: #caa; font-size: 14px; margin-top: 5px; font-style: italic; }
         .hidden { display: none; }
+        textarea { width: 100%; height: 60px; background: #444; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; box-sizing: border-box; resize: none; font-size: 12px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-
     <h2>🎮 Чистая P2P Игра (Без Серверов)</h2>
 
     <!-- Шаг 1: Главное меню -->
     <div id="setup-panel" class="box">
         <button class="blue" onclick="startAsHost()">1. Создать комнату (Я Хост)</button>
-        <p class="status">Создайте сессию и отправьте ссылку другу</p>
+        <p class="status">Создайте сессию и передайте ссылку другу</p>
     </div>
 
     <!-- Обмен ссылками -->
     <div id="exchange-panel" class="box hidden">
         <h3 id="exchange-title">Настройка связи</h3>
         <p id="exchange-instruction" style="font-size: 14px; color: #ccc;"></p>
-        <div id="host-input-container" class="hidden">
-            <input type="text" id="client-link-input" placeholder="Вставьте ответную ссылку от друга">
-            <button onclick="connectToClient()">3. Подключить игрока</button>
+        
+        <!-- Поле показа ссылки (Для Хоста или Клиента) -->
+        <div id="output-container">
+            <p style="font-size: 13px; color: #ffc107; margin: 5px 0;">Скопируйте этот текст и отправьте другу:</p>
+            <textarea id="output-link-text" readonly onclick="this.select()"></textarea>
+            <button class="blue" id="manual-copy-btn" onclick="copyGeneratedLink()">Скопировать в буфер</button>
+        </div>
+
+        <!-- Поле ввода ссылки (Только для Хоста) -->
+        <div id="host-input-container" class="hidden" style="margin-top: 15px; border-top: 1px solid #555; padding-top: 15px;">
+            <p style="font-size: 13px; color: #28a745; margin: 5px 0;">Вставьте ответную ссылку, которую прислал друг:</p>
+            <input type="text" id="client-link-input" placeholder="Вставьте ответную ссылку сюда">
+            <button onclick="connectToClient()">3. Подключить игрока и начать</button>
         </div>
         <div class="status" id="exchange-status"></div>
     </div>
 
     <!-- Игровой холст -->
     <canvas id="gameCanvas" width="400" height="400"></canvas>
-    <p style="color: #aaa; font-size: 14px;">Управление: Кликайте или тапайте по полю, чтобы переместить свой квадрат.</p>
-
-    <script>
+    <p style="color: #aaa; font-size: 14px;">Управление: Кликайте или тапайте по полю, чтобы переместить свой квадрат.</p>    <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -48,8 +56,10 @@
         let myPlayer = { x: 50, y: 200, color: '#007bff', size: 30 };
         let enemyPlayer = { x: 320, y: 200, color: '#dc3545', size: 30, active: false };
 
-        // Инициализируем чистое WebRTC подключение без серверов
-        let pc = new RTCPeerConnection({ iceServers: [] }); 
+        // Инициализируем WebRTC с публичным STUN-сервером
+        let pc = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:://google.com' }]
+        }); 
         let dataChannel = null;
 
         // Кодирование данных для упаковки в URL (Base64)
@@ -73,24 +83,25 @@
         const incomingOffer = urlParams.get('offer');
 
         if (incomingOffer) {
-            // Если в ссылке есть 'offer', значит зашел КЛИЕНТ
             document.getElementById('setup-panel').classList.add('hidden');
             startAsClient(incomingOffer);
         }
 
         // --- ЛОГИКА ХОСТА ---
         async function startAsHost() {
-            document.getElementById('setup-role')?.classList.add('hidden');
             document.getElementById('setup-panel').classList.add('hidden');
             
-            // Создаем канал данных
             dataChannel = pc.createDataChannel("game-channel");
             setupDataChannel();
 
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+            } catch (err) {
+                alert("Ошибка WebRTC: " + err.message);
+            }
 
-            // Собираем локальные сетевые параметры
+            // Ждем генерации параметров
             pc.onicecandidate = (event) => {
                 if (event.candidate === null) {
                     const compressedOffer = pack(pc.localDescription);
@@ -98,18 +109,30 @@
                     
                     document.getElementById('exchange-panel').classList.remove('hidden');
                     document.getElementById('exchange-title').innerText = "Шаг 1: Приглашение";
-                    document.getElementById('exchange-instruction').innerText = "Ссылка скопирована! Отправьте её другу. Когда он перейдет по ней, он скинет вам ответную ссылку — вставьте её ниже:";
+                    document.getElementById('exchange-instruction').innerText = "Передайте ссылку ниже другу. Когда он откроет её, он пришлет вам ответный текст — вставьте его в самое нижнее поле.";
+                    
+                    document.getElementById('output-link-text').value = inviteLink;
                     document.getElementById('host-input-container').classList.remove('hidden');
-
-                    navigator.clipboard.writeText(inviteLink);
-                    document.getElementById('exchange-status').innerText = "📋 Ссылка-приглашение скопирована в буфер!";
                 }
             };
         }
 
+        function copyGeneratedLink() {
+            const textArea = document.getElementById('output-link-text');
+            textArea.select();
+            textArea.setSelectionRange(0, 99999); 
+            try {
+                document.execCommand('copy'); 
+                document.getElementById('manual-copy-btn').innerText = "📋 Успешно скопировано!";
+                document.getElementById('manual-copy-btn').style.background = "#007bff";
+            } catch (err) {
+                alert("Не удалось скопировать автоматически. Выделите текст пальцем и скопируйте вручную.");
+            }
+        }
+
         function connectToClient() {
             const inputVal = document.getElementById('client-link-input').value.trim();
-            if (!inputVal) return alert("Вставьте ссылку от друга!");
+            if (!inputVal) return alert("Вставьте ссылку или код от друга!");
             
             try {
                 let answerStr = inputVal;
@@ -119,29 +142,30 @@
                 }
                 const answer = unpack(answerStr);
                 pc.setRemoteDescription(new RTCSessionDescription(answer));
-                document.getElementById('exchange-status').innerText = "Синхронизация соединения...";
+                document.getElementById('exchange-status').innerText = "Установка прямого соединения...";
             } catch(e) {
-                alert("Ошибка чтения ссылки. Убедитесь, что скопировали её целиком.");
+                alert("Неверный формат данных. Убедитесь, что скопировали строку друга целиком.");
             }
         }
 
         // --- ЛОГИКА КЛИЕНТА ---
         async function startAsClient(offerStr) {
-            // Клиент подхватывает канал, созданный хостом
             pc.ondatachannel = (event) => {
                 dataChannel = event.channel;
                 setupDataChannel();
             };
 
-            // Переключаем цвета для баланса визуализации
             myPlayer.color = '#dc3545';
             enemyPlayer.color = '#007bff';
 
-            const offer = unpack(offerStr);
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
+            try {
+                const offer = unpack(offerStr);
+                await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+            } catch (err) {
+                alert("Ошибка подключения клиента: " + err.message);
+            }
 
             pc.onicecandidate = (event) => {
                 if (event.candidate === null) {
@@ -149,30 +173,29 @@
                     const responseLink = `${window.location.origin}${window.location.pathname}?answer=${compressedAnswer}`;
                     
                     document.getElementById('exchange-panel').classList.remove('hidden');
-                    document.getElementById('exchange-title').innerText = "Шаг 2: Ответ";
-                    document.getElementById('exchange-instruction').innerText = "Ответная ссылка скопирована! Отправьте её обратно другу (Хосту) в мессенджер, чтобы игра началась.";
+                    document.getElementById('exchange-title').innerText = "Шаг 2: Ответ хосту";
+                    document.getElementById('exchange-instruction').innerText = "Ваш телефон сгенерировал ответ. Скопируйте ссылку ниже и отправьте её обратно другу (Хосту) в мессенджер.";
                     
-                    navigator.clipboard.writeText(responseLink);
-                    document.getElementById('exchange-status').innerText = "📋 Ответная ссылка скопирована в буфер!";
+                    document.getElementById('output-link-text').value = responseLink;
                 }
             };
         }
-
         // --- ИГРОВОЙ КАНАЛ СВЯЗИ ---
         function setupDataChannel() {
             dataChannel.onopen = () => {
-                // Скрываем все меню настройки, открываем игру
                 document.getElementById('exchange-panel').classList.add('hidden');
                 enemyPlayer.active = true;
                 sendMyPosition();
             };
 
             dataChannel.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === 'MOVE') {
-                    enemyPlayer.x = data.x;
-                    enemyPlayer.y = data.y;
-                }
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'MOVE') {
+                        enemyPlayer.x = data.x;
+                        enemyPlayer.y = data.y;
+                    }
+                } catch(e){}
             };
 
             dataChannel.onclose = () => {
@@ -210,13 +233,23 @@
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Рисуем игрока
             ctx.fillStyle = myPlayer.color;
             ctx.fillRect(myPlayer.x, myPlayer.y, myPlayer.size, myPlayer.size);
 
-            // Рисуем соперника
             if (enemyPlayer.active) {
                 ctx.fillStyle = enemyPlayer.color;
                 ctx.fillRect(enemyPlayer.x, enemyPlayer.y, enemyPlayer.size, enemyPlayer.size);
             } else {
-                ctx.fillStyle = "#666";ctx.font = "15px sans-serif";ctx.fillText("Ожидание настройки P2P связи...", 80, 200);}requestAnimationFrame(gameLoop);}gameLoop();
+                ctx.fillStyle = "#666";
+                ctx.font = "15px sans-serif";
+                ctx.fillText("Ожидание обмена ссылками...", 95, 200);
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
+
