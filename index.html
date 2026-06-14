@@ -1,72 +1,91 @@
 <!DOCTYPE html>
-<html lang="ru"> 
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Стабильная P2P Игра без Серверов</title>
+    <title>P2P Отладка игры</title>
     <style>
         body { font-family: sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 10px; }
         .box { background: #333; padding: 15px; border-radius: 8px; max-width: 420px; margin: 10px auto; box-shadow: 0 4px 6px rgba(0,0,0,0.3); box-sizing: border-box; }
         canvas { background: #111; border: 2px solid #555; display: block; margin: 10px auto; max-width: 100%; border-radius: 4px; }
-        button { padding: 12px; width: 100%; background: #28a745; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 15px; margin: 5px 0; }
-        button.blue { background: #007bff; }
-        input { padding: 12px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; border: 1px solid #555; background: #444; color: #fff; font-size: 14px; }
-        .status { color: #caa; font-size: 14px; margin-top: 5px; font-style: italic; }
+        button { padding: 12px; width: 100%; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 15px; margin: 5px 0; }
+        input, textarea { padding: 12px; width: 100%; box-sizing: border-box; margin-bottom: 10px; border-radius: 4px; border: 1px solid #555; background: #444; color: #fff; }
         .hidden { display: none; }
-        textarea { width: 100%; height: 60px; background: #444; color: #fff; border: 1px solid #555; border-radius: 4px; padding: 5px; box-sizing: border-box; resize: none; font-size: 12px; margin-bottom: 10px; }
+        /* Стили для окна логов */
+        #debug-log { background: #000; color: #0f0; font-family: monospace; text-align: left; font-size: 11px; padding: 10px; height: 120px; overflow-y: scroll; border: 1px solid #333; border-radius: 4px; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h2>🎮 Чистая P2P Игра (Без Серверов)</h2>
+    <h2>⚡ P2P Игра с Отладкой</h2>
+
+    <!-- Окно отладки (Видно всегда) -->
+    <div class="box" style="border: 1px solid #555;">
+        <strong style="color: #0f0;">Окно системных логов:</strong>
+        <div id="debug-log">Скрипт загружен. Ожидание действий...</div>
+    </div>
 
     <!-- Шаг 1: Главное меню -->
     <div id="setup-panel" class="box">
-        <button class="blue" onclick="startAsHost()">1. Создать комнату (Я Хост)</button>
-        <p class="status">Создайте сессию и передайте ссылку другу</p>
+        <button onclick="startAsHost()">1. Создать комнату (Я Хост)</button>
     </div>
 
     <!-- Обмен ссылками -->
     <div id="exchange-panel" class="box hidden">
-        <h3 id="exchange-title">Настройка связи</h3>
-        <p id="exchange-instruction" style="font-size: 14px; color: #ccc;"></p>
+        <p style="font-size: 13px; color: #ffc107; margin: 5px 0;">Скопируйте этот текст и отправьте другу:</p>
+        <textarea id="output-link-text" readonly onclick="this.select()"></textarea>
         
-        <!-- Поле показа ссылки (Для Хоста или Клиента) -->
-        <div id="output-container">
-            <p style="font-size: 13px; color: #ffc107; margin: 5px 0;">Скопируйте этот текст и отправьте другу:</p>
-            <textarea id="output-link-text" readonly onclick="this.select()"></textarea>
-            <button class="blue" id="manual-copy-btn" onclick="copyGeneratedLink()">Скопировать в буфер</button>
-        </div>
-
-        <!-- Поле ввода ссылки (Только для Хоста) -->
         <div id="host-input-container" class="hidden" style="margin-top: 15px; border-top: 1px solid #555; padding-top: 15px;">
-            <p style="font-size: 13px; color: #28a745; margin: 5px 0;">Вставьте ответную ссылку, которую прислал друг:</p>
+            <p style="font-size: 13px; color: #28a745; margin: 5px 0;">Вставьте ответную ссылку друга:</p>
             <input type="text" id="client-link-input" placeholder="Вставьте ответную ссылку сюда">
-            <button onclick="connectToClient()">3. Подключить игрока и начать</button>
+            <button style="background:#28a745;" onclick="connectToClient()">3. Подключить игрока</button>
         </div>
-        <div class="status" id="exchange-status"></div>
     </div>
 
-    <!-- Игровой холст -->
     <canvas id="gameCanvas" width="400" height="400"></canvas>
-    <p style="color: #aaa; font-size: 14px;">Управление: Кликайте или тапайте по полю, чтобы переместить свой квадрат.</p>    <script>
+        <script>
+        const logDiv = document.getElementById('debug-log');
+        
+        // Функция вывода текста на экран телефона
+        function debugLog(text, isError = false) {
+            const time = new Date().toLocaleTimeString();
+            const color = isError ? 'color: #ff4d4d;' : '';
+            logDiv.innerHTML += `<div style="${color}">[${time}] ${text}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(text);
+        }
+
+        // Перехватываем вообще все глобальные ошибки на странице
+        window.onerror = function(message, source, lineno, colno, error) {
+            debugLog(`КРИТИЧЕСКАЯ ОШИБКА: ${message} (Строка: ${lineno})`, true);
+            return false;
+        };
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-
-        // Данные игроков
         let myPlayer = { x: 50, y: 200, color: '#007bff', size: 30 };
         let enemyPlayer = { x: 320, y: 200, color: '#dc3545', size: 30, active: false };
 
-        // Инициализируем WebRTC с публичным STUN-сервером
-        let pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:://google.com' }]
-        }); 
+        let pc = null;
         let dataChannel = null;
 
-        // Кодирование данных для упаковки в URL (Base64)
+        // Безопасная инициализация WebRTC
+        try {
+            debugLog("Проверка поддержки WebRTC в браузере...");
+            if (!window.RTCPeerConnection) {
+                throw new Error("WebRTC НЕ поддерживается этим браузером/телефоном!");
+            }
+            
+            pc = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:://google.com' }]
+            });
+            debugLog("Объект RTCPeerConnection успешно создан.");
+        } catch (e) {
+            debugLog("Сбой при инициализации WebRTC: " + e.message, true);
+        }
+
         function pack(obj) {
             const bytes = new TextEncoder().encode(JSON.stringify(obj));
-            return btoa(String.fromCharCode.apply(null, bytes))
-                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            return btoa(String.fromCharCode.apply(null, bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         }
 
         function unpack(str) {
@@ -78,61 +97,56 @@
             return JSON.parse(new TextDecoder().decode(bytes));
         }
 
-        // Автоматически проверяем URL при открытии страницы
         const urlParams = new URLSearchParams(window.location.search);
         const incomingOffer = urlParams.get('offer');
 
         if (incomingOffer) {
+            debugLog("Обнаружен входящий offer в URL. Запуск в режиме КЛИЕНТА...");
             document.getElementById('setup-panel').classList.add('hidden');
-            startAsClient(incomingOffer);
+            setTimeout(() => startAsClient(incomingOffer), 500);
         }
 
         // --- ЛОГИКА ХОСТА ---
         async function startAsHost() {
+            debugLog("Нажата кнопка Хоста. Создание оффера...");
             document.getElementById('setup-panel').classList.add('hidden');
             
-            dataChannel = pc.createDataChannel("game-channel");
-            setupDataChannel();
-
             try {
+                dataChannel = pc.createDataChannel("game-channel");
+                setupDataChannel();
+                debugChannelState();
+
                 const offer = await pc.createOffer();
+                debugLog("Локальный оффер создан. Применение...");
                 await pc.setLocalDescription(offer);
+                debugLog("Ожидание сбора ICE-кандидатов от STUN...");
             } catch (err) {
-                alert("Ошибка WebRTC: " + err.message);
+                debugLog("Ошибка создания оффера: " + err.message, true);
             }
 
-            // Ждем генерации параметров
             pc.onicecandidate = (event) => {
+                if (event.candidate) {
+                    debugLog(`Найден сетевой адрес: ${event.candidate.candidate.substring(0, 30)}...`);
+                }
                 if (event.candidate === null) {
-                    const compressedOffer = pack(pc.localDescription);
-                    const inviteLink = `${window.location.origin}${window.location.pathname}?offer=${compressedOffer}`;
-                    
-                    document.getElementById('exchange-panel').classList.remove('hidden');
-                    document.getElementById('exchange-title').innerText = "Шаг 1: Приглашение";
-                    document.getElementById('exchange-instruction').innerText = "Передайте ссылку ниже другу. Когда он откроет её, он пришлет вам ответный текст — вставьте его в самое нижнее поле.";
-                    
-                    document.getElementById('output-link-text').value = inviteLink;
-                    document.getElementById('host-input-container').classList.remove('hidden');
+                    debugLog("Сбор адресов завершен! Формирование ссылки...");
+                    try {
+                        const compressedOffer = pack(pc.localDescription);
+                        const inviteLink = `${window.location.origin}${window.location.pathname}?offer=${compressedOffer}`;
+                        
+                        document.getElementById('exchange-panel').classList.remove('hidden');
+                        document.getElementById('output-link-text').value = inviteLink;
+                        document.getElementById('host-input-container').classList.remove('hidden');
+                        debugLog("ССЫЛКА СГЕНЕРИРОВАНА И ВЫВЕДЕНА НА ЭКРАН!");
+                    } catch(packErr) {
+                        debugLog("Ошибка упаковки данных: " + packErr.message, true);
+                    }
                 }
             };
         }
-
-        function copyGeneratedLink() {
-            const textArea = document.getElementById('output-link-text');
-            textArea.select();
-            textArea.setSelectionRange(0, 99999); 
-            try {
-                document.execCommand('copy'); 
-                document.getElementById('manual-copy-btn').innerText = "📋 Успешно скопировано!";
-                document.getElementById('manual-copy-btn').style.background = "#007bff";
-            } catch (err) {
-                alert("Не удалось скопировать автоматически. Выделите текст пальцем и скопируйте вручную.");
-            }
-        }
-
         function connectToClient() {
             const inputVal = document.getElementById('client-link-input').value.trim();
-            if (!inputVal) return alert("Вставьте ссылку или код от друга!");
+            if (!inputVal) return alert("Вставьте текст!");
             
             try {
                 let answerStr = inputVal;
@@ -141,10 +155,10 @@
                     answerStr = url.searchParams.get('answer');
                 }
                 const answer = unpack(answerStr);
+                debugLog("Ответ друга прочитан. Подключение...");
                 pc.setRemoteDescription(new RTCSessionDescription(answer));
-                document.getElementById('exchange-status').innerText = "Установка прямого соединения...";
             } catch(e) {
-                alert("Неверный формат данных. Убедитесь, что скопировали строку друга целиком.");
+                debugLog("Ошибка разбора ответа друга: " + e.message, true);
             }
         }
 
@@ -153,6 +167,7 @@
             pc.ondatachannel = (event) => {
                 dataChannel = event.channel;
                 setupDataChannel();
+                debugChannelState();
             };
 
             myPlayer.color = '#dc3545';
@@ -160,34 +175,36 @@
 
             try {
                 const offer = unpack(offerStr);
+                debugLog("Оффер хоста успешно распакован. Применение...");
                 await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                
                 const answer = await pc.createAnswer();
+                debugLog("Ответный локальный ансвер создан. Применение...");
                 await pc.setLocalDescription(answer);
             } catch (err) {
-                alert("Ошибка подключения клиента: " + err.message);
+                debugLog("Ошибка инициализации клиента: " + err.message, true);
             }
 
             pc.onicecandidate = (event) => {
                 if (event.candidate === null) {
+                    debugLog("Сбор адресов клиента завершен. Создание ссылки-ответа...");
                     const compressedAnswer = pack(pc.localDescription);
                     const responseLink = `${window.location.origin}${window.location.pathname}?answer=${compressedAnswer}`;
                     
                     document.getElementById('exchange-panel').classList.remove('hidden');
-                    document.getElementById('exchange-title').innerText = "Шаг 2: Ответ хосту";
-                    document.getElementById('exchange-instruction').innerText = "Ваш телефон сгенерировал ответ. Скопируйте ссылку ниже и отправьте её обратно другу (Хосту) в мессенджер.";
-                    
                     document.getElementById('output-link-text').value = responseLink;
+                    debugLog("ОТВЕТНАЯ ССЫЛКА ГОТОВА!");
                 }
             };
         }
-        // --- ИГРОВОЙ КАНАЛ СВЯЗИ ---
+
         function setupDataChannel() {
             dataChannel.onopen = () => {
+                debugLog("СОЕДИНЕНИЕ УСТАНОВЛЕНО! ИГРА НАЧАЛАСЬ!");
                 document.getElementById('exchange-panel').classList.add('hidden');
                 enemyPlayer.active = true;
                 sendMyPosition();
             };
-
             dataChannel.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
@@ -197,24 +214,24 @@
                     }
                 } catch(e){}
             };
-
             dataChannel.onclose = () => {
+                debugLog("Соединение закрыто вторым игроком.", true);
                 enemyPlayer.active = false;
-                alert("Игрок отключился.");
             };
+        }
+
+        function debugChannelState() {
+            if(dataChannel) {
+                dataChannel.onerror = (err) => debugLog("Ошибка канала данных: " + err.message, true);
+            }
         }
 
         function sendMyPosition() {
             if (dataChannel && dataChannel.readyState === "open") {
-                dataChannel.send(JSON.stringify({
-                    type: 'MOVE',
-                    x: myPlayer.x,
-                    y: myPlayer.y
-                }));
+                dataChannel.send(JSON.stringify({ type: 'MOVE', x: myPlayer.x, y: myPlayer.y }));
             }
         }
 
-        // --- РЕНДЕР И НАЖАТИЯ ---
         function moveHandler(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
             myPlayer.x = ((clientX - rect.left) / rect.width) * canvas.width - myPlayer.size / 2;
@@ -223,7 +240,6 @@
         }
 
         canvas.addEventListener('click', (e) => moveHandler(e.clientX, e.clientY));
-        
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
@@ -232,22 +248,14 @@
 
         function gameLoop() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
             ctx.fillStyle = myPlayer.color;
             ctx.fillRect(myPlayer.x, myPlayer.y, myPlayer.size, myPlayer.size);
-
             if (enemyPlayer.active) {
                 ctx.fillStyle = enemyPlayer.color;
                 ctx.fillRect(enemyPlayer.x, enemyPlayer.y, enemyPlayer.size, enemyPlayer.size);
-            } else {
-                ctx.fillStyle = "#666";
-                ctx.font = "15px sans-serif";
-                ctx.fillText("Ожидание обмена ссылками...", 95, 200);
             }
-
             requestAnimationFrame(gameLoop);
         }
-
         gameLoop();
     </script>
 </body>
